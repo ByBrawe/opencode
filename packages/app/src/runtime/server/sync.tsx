@@ -11,6 +11,7 @@ import type { ProjectMeta } from "./global-sync/types"
 import { formatServerError } from "@/runtime/server/errors"
 import { queryOptions, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/solid-query"
 import { createRefreshQueue } from "./global-sync/queue"
+import { commandRefreshTargets } from "./global-sync/command-refresh"
 import { directoryKey, updateProjectInfo } from "./global-sync/utils"
 import { PathKey } from "@/workspaces/path-key"
 import type { ServerScope } from "@/runtime/server/scope"
@@ -241,6 +242,20 @@ export function createServerSyncContextInner(serverSDK: ServerSDK, data: Data) {
 
   const unsub = serverSDK.event.listen((event) => {
     connection.handleEvent({ type: event.type })
+
+    // A native command may be registered after location bootstrap. An explicit
+    // command.updated event must re-sync Desktop's slash-command suggestions.
+    const commandTargets = commandRefreshTargets(
+      event,
+      Object.keys(children.children).filter(children.active),
+    )
+    for (const directory of commandTargets) {
+      const key = directoryKey(directory)
+      if (!children.children[key]) continue
+      children.mark(key)
+      queue.push(key)
+    }
+    if (event.type === "command.updated") return
 
     if (event.type === "project.updated") applyProjectUpdate(event.data)
 
